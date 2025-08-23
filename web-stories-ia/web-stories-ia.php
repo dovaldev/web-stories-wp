@@ -145,11 +145,56 @@ class Web_Stories_IA {
      */
     private function get_templates(): array {
         $args = [
-            'post_type'      => 'web-story-page',
+            'post_type'      => 'web-story',
             'post_status'    => 'publish',
             'posts_per_page' => -1,
         ];
         return get_posts( $args );
+    }
+
+    private function get_template_data( int $template_id ): array {
+        if ( ! $template_id ) {
+            return [];
+        }
+        $template = get_post( $template_id );
+        if ( ! $template ) {
+            return [];
+        }
+        $data = json_decode( $template->post_content_filtered, true );
+        return $data['pages'] ?? [];
+    }
+
+    private function openai_request( string $prompt, string $key ) {
+        $response = wp_remote_post(
+            'https://api.openai.com/v1/responses',
+            [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $key,
+                    'Content-Type'  => 'application/json',
+                ],
+                'body'    => wp_json_encode(
+                    [
+                        'model' => 'gpt-4o-mini',
+                        'input' => $prompt,
+                    ]
+                ),
+                'timeout' => 60,
+            ]
+        );
+
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+        $text = $body['output'][0]['content'][0]['text'] ?? '';
+        $data = json_decode( $text, true );
+
+        if ( empty( $data ) ) {
+            return new WP_Error( 'web_stories_ia', __( 'Invalid response from OpenAI.', 'web-stories-ia' ) );
+        }
+
+        return $data;
     }
 
     private function handle_generation(): void {
@@ -162,51 +207,48 @@ class Web_Stories_IA {
         $pages       = absint( $_POST['web_stories_ia_pages'] ?? 1 );
         $template_id = absint( $_POST['web_stories_ia_template'] ?? 0 );
 
-        $openai_prompt = sprintf(
-            'Crea una historia web en formato JSON con %d paginas sobre: %s. Devuelve titulo, descripcion y un arreglo "pages" con el contenido de cada pagina.',
-            $pages,
-            $prompt
-        );
+        $template_pages = $this->get_template_data( $template_id );
 
-        $response = wp_remote_post(
-            'https://api.openai.com/v1/responses',
-            [
-                'headers' => [
-                    'Authorization' => 'Bearer ' . $key,
-                    'Content-Type'  => 'application/json',
-                ],
-                'body'    => wp_json_encode(
-                    [
-                        'model' => 'gpt-4o-mini',
-                        'input' => $openai_prompt,
-                    ]
-                ),
-                'timeout' => 60,
-            ]
+        $outline_prompt = sprintf(
+            'Tema: %s. Devuelve JSON con "title", "description" y un arreglo "pages" de %d descripciones cortas de cada página.',
+            $prompt,
+            $pages
         );
+        $outline = $this->openai_request( $outline_prompt, $key );
 
-        if ( is_wp_error( $response ) ) {
-            echo '<div class="notice notice-error"><p>' . esc_html( $response->get_error_message() ) . '</p></div>';
+        if ( is_wp_error( $outline ) || empty( $outline['pages'] ) ) {
+            $message = is_wp_error( $outline ) ? $outline->get_error_message() : __( 'Could not generate story outline.', 'web-stories-ia' );
+            echo '<div class="notice notice-error"><p>' . esc_html( $message ) . '</p></div>';
             return;
         }
 
-        $body = json_decode( wp_remote_retrieve_body( $response ), true );
-        $text = $body['output'][0]['content'][0]['text'] ?? '';
-        $data = json_decode( $text, true );
-        if ( empty( $data['pages'] ) ) {
-            echo '<div class="notice notice-error"><p>' . esc_html__( 'Could not generate story.', 'web-stories-ia' ) . '</p></div>';
-            return;
+        $generated_pages = [];
+        foreach ( $outline['pages'] as $index => $summary ) {
+            $template_page = $template_pages[ $index ] ?? [];
+            $page_prompt   = sprintf(
+                'Usa el diseño JSON siguiente y crea el contenido de la página %d de una historia sobre "%s". Resumen: %s. Devuelve JSON compatible. Diseño: %s',
+                $index + 1,
+                $prompt,
+                is_string( $summary ) ? $summary : wp_json_encode( $summary ),
+                wp_json_encode( $template_page )
+            );
+            $page = $this->openai_request( $page_prompt, $key );
+            if ( is_wp_error( $page ) ) {
+                echo '<div class="notice notice-error"><p>' . esc_html( $page->get_error_message() ) . '</p></div>';
+                return;
+            }
+            $generated_pages[] = $page;
         }
 
         $story_id = wp_insert_post(
             [
                 'post_type'    => 'web-story',
                 'post_status'  => 'draft',
-                'post_title'   => sanitize_text_field( $data['title'] ?? $prompt ),
-                'post_excerpt' => sanitize_text_field( $data['description'] ?? '' ),
+                'post_title'   => sanitize_text_field( $outline['title'] ?? $prompt ),
+                'post_excerpt' => sanitize_text_field( $outline['description'] ?? '' ),
                 'post_content_filtered' => wp_json_encode(
                     [
-                        'pages' => $data['pages'],
+                        'pages' => $generated_pages,
                     ]
                 ),
             ]
