@@ -259,6 +259,48 @@ class Web_Stories_IA {
             return;
         }
 
+        $categories = $outline['categories'] ?? [];
+        if ( ! empty( $categories ) && taxonomy_exists( 'category' ) ) {
+            $category_ids = [];
+            foreach ( (array) $categories as $category ) {
+                $category   = sanitize_text_field( $category );
+                $term       = term_exists( $category, 'category' );
+                if ( 0 === $term || null === $term ) {
+                    $term = wp_insert_term( $category, 'category' );
+                }
+                if ( ! is_wp_error( $term ) ) {
+                    $category_ids[] = (int) ( is_array( $term ) ? $term['term_id'] : $term );
+                }
+            }
+            if ( ! empty( $category_ids ) ) {
+                wp_set_post_terms( $story_id, $category_ids, 'category' );
+            }
+        }
+
+        $tags = $outline['tags'] ?? [];
+        if ( ! empty( $tags ) && taxonomy_exists( 'post_tag' ) ) {
+            $tag_ids = [];
+            foreach ( (array) $tags as $tag ) {
+                $tag  = sanitize_text_field( $tag );
+                $term = term_exists( $tag, 'post_tag' );
+                if ( 0 === $term || null === $term ) {
+                    $term = wp_insert_term( $tag, 'post_tag' );
+                }
+                if ( ! is_wp_error( $term ) ) {
+                    $tag_ids[] = (int) ( is_array( $term ) ? $term['term_id'] : $term );
+                }
+            }
+            if ( ! empty( $tag_ids ) ) {
+                wp_set_post_terms( $story_id, $tag_ids, 'post_tag' );
+            }
+        }
+
+        $resources = $outline['resources'] ?? [];
+        if ( ! empty( $resources ) ) {
+            $resources = array_map( 'esc_url_raw', (array) $resources );
+            update_post_meta( $story_id, '_web_stories_ia_resources', $resources );
+        }
+
         $edit_link = esc_url( admin_url( sprintf( 'post.php?post=%d&action=edit', $story_id ) ) );
         echo '<div class="notice notice-success"><p>' . sprintf( esc_html__( 'Story created. %sEdit story%s.', 'web-stories-ia' ), '<a href="' . $edit_link . '">', '</a>' ) . '</p></div>';
     }
