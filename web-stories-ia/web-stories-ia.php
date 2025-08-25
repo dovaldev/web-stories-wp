@@ -268,9 +268,46 @@ class Web_Stories_IA {
             return $response;
         }
 
-        $body = json_decode( wp_remote_retrieve_body( $response ), true );
-        $text = $body['output'][0]['content'][0]['text'] ?? '';
+        $code = wp_remote_retrieve_response_code( $response );
+        if ( 200 !== $code ) {
+            return new WP_Error(
+                'web_stories_ia',
+                sprintf(
+                    /* translators: %d: HTTP response code */
+                    __( 'OpenAI API request failed with status code %d.', 'web-stories-ia' ),
+                    $code
+                )
+            );
+        }
+
+        $body = wp_remote_retrieve_body( $response );
+        $decoded = json_decode( $body, true );
+        if ( JSON_ERROR_NONE !== json_last_error() ) {
+            return new WP_Error(
+                'web_stories_ia',
+                sprintf(
+                    __( 'Error decoding OpenAI response: %s', 'web-stories-ia' ),
+                    json_last_error_msg()
+                )
+            );
+        }
+
+        if ( empty( $decoded['output'] ) || empty( $decoded['output'][0]['content'] ) ) {
+            return new WP_Error( 'web_stories_ia', __( 'Invalid response from OpenAI.', 'web-stories-ia' ) );
+        }
+
+        $text = $decoded['output'][0]['content'][0]['text'] ?? '';
         $data = json_decode( $text, true );
+
+        if ( JSON_ERROR_NONE !== json_last_error() ) {
+            return new WP_Error(
+                'web_stories_ia',
+                sprintf(
+                    __( 'Error decoding OpenAI content: %s', 'web-stories-ia' ),
+                    json_last_error_msg()
+                )
+            );
+        }
 
         if ( empty( $data ) ) {
             return new WP_Error( 'web_stories_ia', __( 'Invalid response from OpenAI.', 'web-stories-ia' ) );
