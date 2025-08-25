@@ -124,6 +124,10 @@ class Web_Stories_IA {
                         <th scope="row"><label for="web_stories_ia_pages"><?php esc_html_e( 'Number of pages', 'web-stories-ia' ); ?></label></th>
                         <td><input name="web_stories_ia_pages" id="web_stories_ia_pages" type="number" value="5" min="1" class="small-text" /></td>
                     </tr>
+                    <tr>
+                        <th scope="row"><label for="web_stories_ia_sources"><?php esc_html_e( 'Reference URLs', 'web-stories-ia' ); ?></label></th>
+                        <td><textarea name="web_stories_ia_sources" id="web_stories_ia_sources" rows="3" class="large-text"></textarea></td>
+                    </tr>
                 </table>
                 <?php submit_button( __( 'Generate Story', 'web-stories-ia' ) ); ?>
             </form>
@@ -203,9 +207,12 @@ class Web_Stories_IA {
             echo '<div class="notice notice-error"><p>' . esc_html__( 'Please configure the OpenAI API key first.', 'web-stories-ia' ) . '</p></div>';
             return;
         }
-        $prompt      = sanitize_text_field( $_POST['web_stories_ia_prompt'] ?? '' );
-        $pages       = absint( $_POST['web_stories_ia_pages'] ?? 1 );
-        $template_id = absint( $_POST['web_stories_ia_template'] ?? 0 );
+        $prompt       = sanitize_text_field( $_POST['web_stories_ia_prompt'] ?? '' );
+        $pages        = absint( $_POST['web_stories_ia_pages'] ?? 1 );
+        $template_id  = absint( $_POST['web_stories_ia_template'] ?? 0 );
+        $sources_raw  = sanitize_textarea_field( $_POST['web_stories_ia_sources'] ?? '' );
+        $sources      = array_filter( array_map( 'esc_url_raw', preg_split( '/\r\n|\r|\n|,/', $sources_raw ) ) );
+        $links_text   = $sources ? ' Enlaces: ' . implode( ' ', $sources ) : '';
 
         $template_pages = $this->get_template_data( $template_id );
 
@@ -213,7 +220,7 @@ class Web_Stories_IA {
             'Tema: %s. Devuelve JSON con "title", "description" y un arreglo "pages" de %d descripciones cortas de cada página.',
             $prompt,
             $pages
-        );
+        ) . $links_text;
         $outline = $this->openai_request( $outline_prompt, $key );
 
         if ( is_wp_error( $outline ) || empty( $outline['pages'] ) ) {
@@ -231,7 +238,7 @@ class Web_Stories_IA {
                 $prompt,
                 is_string( $summary ) ? $summary : wp_json_encode( $summary ),
                 wp_json_encode( $template_page )
-            );
+            ) . $links_text;
             $page = $this->openai_request( $page_prompt, $key );
             if ( is_wp_error( $page ) ) {
                 echo '<div class="notice notice-error"><p>' . esc_html( $page->get_error_message() ) . '</p></div>';
