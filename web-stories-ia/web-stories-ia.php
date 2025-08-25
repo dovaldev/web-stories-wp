@@ -246,6 +246,24 @@ class Web_Stories_IA {
         return $data['pages'] ?? [];
     }
 
+    private function get_page_image_alts( array $page ): array {
+        $alts    = [];
+        $elements = $page['elements'] ?? [];
+        foreach ( $elements as $element ) {
+            if ( ( $element['type'] ?? '' ) !== 'image' ) {
+                continue;
+            }
+            $alt = $element['resource']['alt'] ?? '';
+            if ( ! $alt && ! empty( $element['resource']['id'] ) ) {
+                $alt = get_post_meta( $element['resource']['id'], '_wp_attachment_image_alt', true );
+            }
+            if ( $alt ) {
+                $alts[] = sanitize_text_field( $alt );
+            }
+        }
+        return $alts;
+    }
+
     private function openai_request( string $prompt, string $key ) {
         $response = wp_remote_post(
             'https://api.openai.com/v1/responses',
@@ -393,10 +411,13 @@ class Web_Stories_IA {
         $generated_pages = [];
         foreach ( $outline['pages'] as $index => $summary ) {
             $template_page = $template_pages[ $index ] ?? [];
+            $image_alts    = $this->get_page_image_alts( $template_page );
+            $alts_text     = $image_alts ? 'Alt de imágenes: ' . implode( '; ', $image_alts ) . '. ' : '';
             $page_prompt   = sprintf(
-                'Usa el diseño JSON siguiente y crea el contenido de la página %d de una historia sobre "%s". Resumen: %s. Devuelve JSON compatible. Diseño: %s',
+                'Usa el diseño JSON siguiente y crea el contenido de la página %1$d de una historia sobre "%2$s". %3$sResumen: %4$s. Devuelve JSON compatible. Diseño: %5$s',
                 $index + 1,
                 $prompt,
+                $alts_text,
                 is_string( $summary ) ? $summary : wp_json_encode( $summary ),
                 wp_json_encode( $template_page )
             );
