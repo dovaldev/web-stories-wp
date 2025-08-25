@@ -106,6 +106,7 @@ class Web_Stories_IA {
         if ( isset( $_POST['web_stories_ia_generate_nonce'] ) && wp_verify_nonce( $_POST['web_stories_ia_generate_nonce'], 'web_stories_ia_generate' ) ) {
             $this->handle_generation();
         }
+        wp_enqueue_media();
         ?>
         <div class="wrap">
             <h1><?php esc_html_e( 'Create Story with AI', 'web-stories-ia' ); ?></h1>
@@ -124,10 +125,59 @@ class Web_Stories_IA {
                         <th scope="row"><label for="web_stories_ia_pages"><?php esc_html_e( 'Number of pages', 'web-stories-ia' ); ?></label></th>
                         <td><input name="web_stories_ia_pages" id="web_stories_ia_pages" type="number" value="5" min="1" class="small-text" /></td>
                     </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Images', 'web-stories-ia' ); ?></th>
+                        <td>
+                            <button type="button" class="button" id="web_stories_ia_add_image"><?php esc_html_e( 'Add Images', 'web-stories-ia' ); ?></button>
+                            <ul id="web_stories_ia_images"></ul>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="web_stories_ia_categories"><?php esc_html_e( 'Categories', 'web-stories-ia' ); ?></label></th>
+                        <td><input name="web_stories_ia_categories" id="web_stories_ia_categories" type="text" class="regular-text" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="web_stories_ia_tags"><?php esc_html_e( 'Tags', 'web-stories-ia' ); ?></label></th>
+                        <td><input name="web_stories_ia_tags" id="web_stories_ia_tags" type="text" class="regular-text" /></td>
+                    </tr>
                 </table>
                 <?php submit_button( __( 'Generate Story', 'web-stories-ia' ) ); ?>
             </form>
         </div>
+        <?php
+        $select_images_text   = esc_js( __( 'Select Images', 'web-stories-ia' ) );
+        $alt_text_placeholder = esc_js( __( 'Alt text', 'web-stories-ia' ) );
+        ?>
+        <script>
+        jQuery(function($){
+            var frame;
+            $('#web_stories_ia_add_image').on('click', function(e){
+                e.preventDefault();
+                if (frame) {
+                    frame.open();
+                    return;
+                }
+                frame = wp.media({
+                    title: '<?php echo $select_images_text; ?>',
+                    multiple: true,
+                    library: { type: 'image' }
+                });
+                frame.on('select', function(){
+                    var attachments = frame.state().get('selection').toJSON();
+                    attachments.forEach(function(att){
+                        var alt = att.alt || '';
+                        $('#web_stories_ia_images').append(
+                            '<li><img src="'+att.sizes.thumbnail.url+'" />'
+                            + '<input type="hidden" name="web_stories_ia_images['+att.id+'][id]" value="'+att.id+'" />'
+                            + '<input type="text" name="web_stories_ia_images['+att.id+'][alt]" value="'+alt+'" placeholder="<?php echo $alt_text_placeholder; ?>" />'
+                            + '</li>'
+                        );
+                    });
+                });
+                frame.open();
+            });
+        });
+        </script>
         <?php
     }
 
@@ -207,6 +257,46 @@ class Web_Stories_IA {
         $pages       = absint( $_POST['web_stories_ia_pages'] ?? 1 );
         $template_id = absint( $_POST['web_stories_ia_template'] ?? 0 );
 
+        $images_input = $_POST['web_stories_ia_images'] ?? [];
+        $images       = [];
+        foreach ( $images_input as $img ) {
+            $img_id = absint( $img['id'] ?? 0 );
+            if ( ! $img_id ) {
+                continue;
+            }
+            $alt = sanitize_text_field( $img['alt'] ?? '' );
+            if ( $alt ) {
+                update_post_meta( $img_id, '_wp_attachment_image_alt', $alt );
+            }
+            $images[ $img_id ] = $alt;
+        }
+
+        $categories_input = sanitize_text_field( $_POST['web_stories_ia_categories'] ?? '' );
+        $category_names   = array_filter( array_map( 'trim', explode( ',', $categories_input ) ) );
+        $category_ids     = [];
+        foreach ( $category_names as $name ) {
+            $term = get_term_by( 'name', $name, 'category' );
+            if ( ! $term ) {
+                $term = wp_insert_term( $name, 'category' );
+            }
+            if ( ! is_wp_error( $term ) ) {
+                $category_ids[] = (int) ( is_array( $term ) ? $term['term_id'] : $term->term_id );
+            }
+        }
+
+        $tags_input = sanitize_text_field( $_POST['web_stories_ia_tags'] ?? '' );
+        $tag_names  = array_filter( array_map( 'trim', explode( ',', $tags_input ) ) );
+        $tag_ids    = [];
+        foreach ( $tag_names as $name ) {
+            $term = get_term_by( 'name', $name, 'post_tag' );
+            if ( ! $term ) {
+                $term = wp_insert_term( $name, 'post_tag' );
+            }
+            if ( ! is_wp_error( $term ) ) {
+                $tag_ids[] = (int) ( is_array( $term ) ? $term['term_id'] : $term->term_id );
+            }
+        }
+
         $template_pages = $this->get_template_data( $template_id );
 
         $outline_prompt = sprintf(
@@ -214,6 +304,15 @@ class Web_Stories_IA {
             $prompt,
             $pages
         );
+        if ( $images ) {
+            $outline_prompt .= ' Imágenes: ' . wp_json_encode( $images ) . '.';
+        }
+        if ( $category_names ) {
+            $outline_prompt .= ' Categorías: ' . implode( ', ', $category_names ) . '.';
+        }
+        if ( $tag_names ) {
+            $outline_prompt .= ' Etiquetas: ' . implode( ', ', $tag_names ) . '.';
+        }
         $outline = $this->openai_request( $outline_prompt, $key );
 
         if ( is_wp_error( $outline ) || empty( $outline['pages'] ) ) {
@@ -257,6 +356,16 @@ class Web_Stories_IA {
         if ( is_wp_error( $story_id ) ) {
             echo '<div class="notice notice-error"><p>' . esc_html( $story_id->get_error_message() ) . '</p></div>';
             return;
+        }
+
+        if ( $category_ids ) {
+            wp_set_post_terms( $story_id, $category_ids, 'category' );
+        }
+        if ( $tag_ids ) {
+            wp_set_post_terms( $story_id, $tag_ids, 'post_tag' );
+        }
+        if ( $images ) {
+            update_post_meta( $story_id, '_web_stories_ia_images', $images );
         }
 
         $edit_link = esc_url( admin_url( sprintf( 'post.php?post=%d&action=edit', $story_id ) ) );
