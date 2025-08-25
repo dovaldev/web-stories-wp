@@ -6,6 +6,8 @@
  * Author: Web Stories IA
  * Text Domain: web-stories-ia
  */
+use Google\Web_Stories\Services;
+use Google\Web_Stories\Template_Post_Type;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -185,21 +187,51 @@ class Web_Stories_IA {
         $templates = $this->get_templates();
         echo '<select name="web_stories_ia_template" id="web_stories_ia_template">';
         foreach ( $templates as $template ) {
-            printf( '<option value="%1$s">%2$s</option>', esc_attr( $template->ID ), esc_html( $template->post_title ) );
+            printf(
+                '<option value="%1$s" data-pages="%3$s">%2$s</option>',
+                esc_attr( (string) $template['id'] ),
+                esc_html( $template['title'] ),
+                esc_attr( wp_json_encode( $template['pages'] ) )
+            );
         }
         echo '</select>';
     }
 
     /**
-     * Retrieve templates from Web Stories plugin.
+     * Retrieve templates from Web Stories plugin via its REST API.
      */
     private function get_templates(): array {
-        $args = [
-            'post_type'      => 'web-story',
-            'post_status'    => 'publish',
-            'posts_per_page' => -1,
-        ];
-        return get_posts( $args );
+        if ( ! class_exists( Services::class ) || ! class_exists( Template_Post_Type::class ) ) {
+            return [];
+        }
+
+        $template_post_type = Services::get( 'template_post_type' );
+
+        if ( ! $template_post_type instanceof Template_Post_Type ) {
+            return [];
+        }
+
+        $response = wp_remote_get( rest_url( trailingslashit( $template_post_type->get_rest_url() ) ) );
+
+        if ( is_wp_error( $response ) ) {
+            return [];
+        }
+
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+        if ( ! is_array( $body ) ) {
+            return [];
+        }
+
+        return array_map(
+            static function ( array $item ): array {
+                return [
+                    'id'    => (int) ( $item['id'] ?? 0 ),
+                    'title' => $item['title']['rendered'] ?? '',
+                    'pages' => $item['story_data']['pages'] ?? [],
+                ];
+            },
+            $body
+        );
     }
 
     private function get_template_data( int $template_id ): array {
