@@ -7,7 +7,7 @@
  * Text Domain: web-stories-ia
  */
 use Google\Web_Stories\Services;
-use Google\Web_Stories\Template_Post_Type;
+use Google\Web_Stories\Page_Template_Post_Type;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -201,13 +201,13 @@ class Web_Stories_IA {
      * Retrieve templates from Web Stories plugin via its REST API.
      */
     private function get_templates(): array {
-        if ( ! class_exists( Services::class ) || ! class_exists( Template_Post_Type::class ) ) {
+        if ( ! class_exists( Services::class ) || ! class_exists( Page_Template_Post_Type::class ) ) {
             return [];
         }
 
-        $template_post_type = Services::get( 'template_post_type' );
+        $template_post_type = Services::get( 'page_template_post_type' );
 
-        if ( ! $template_post_type instanceof Template_Post_Type ) {
+        if ( ! $template_post_type instanceof Page_Template_Post_Type ) {
             return [];
         }
 
@@ -238,12 +238,30 @@ class Web_Stories_IA {
         if ( ! $template_id ) {
             return [];
         }
-        $template = get_post( $template_id );
-        if ( ! $template ) {
+
+        if ( ! class_exists( Services::class ) || ! class_exists( Page_Template_Post_Type::class ) ) {
             return [];
         }
-        $data = json_decode( $template->post_content_filtered, true );
-        return $data['pages'] ?? [];
+
+        $template_post_type = Services::get( 'page_template_post_type' );
+
+        if ( ! $template_post_type instanceof Page_Template_Post_Type ) {
+            return [];
+        }
+
+        $response = wp_remote_get( rest_url( trailingslashit( $template_post_type->get_rest_url() ) . $template_id ) );
+
+        if ( is_wp_error( $response ) ) {
+            return [];
+        }
+
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+        if ( ! is_array( $body ) ) {
+            return [];
+        }
+
+        return $body['story_data']['pages'] ?? [];
     }
 
     private function get_page_image_alts( array $page ): array {
