@@ -119,14 +119,18 @@ class Web_Stories_IA {
                         <th scope="row"><label for="web_stories_ia_template"><?php esc_html_e( 'Template', 'web-stories-ia' ); ?></label></th>
                         <td><?php $this->render_template_select(); ?></td>
                     </tr>
-                    <tr>
-                        <th scope="row"><label for="web_stories_ia_prompt"><?php esc_html_e( 'Story topic', 'web-stories-ia' ); ?></label></th>
-                        <td><input name="web_stories_ia_prompt" id="web_stories_ia_prompt" type="text" class="regular-text" required /></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="web_stories_ia_pages"><?php esc_html_e( 'Number of pages', 'web-stories-ia' ); ?></label></th>
-                        <td><input name="web_stories_ia_pages" id="web_stories_ia_pages" type="number" value="5" min="1" class="small-text" /></td>
-                    </tr>
+                      <tr>
+                          <th scope="row"><label for="web_stories_ia_prompt"><?php esc_html_e( 'Story topic', 'web-stories-ia' ); ?></label></th>
+                          <td><input name="web_stories_ia_prompt" id="web_stories_ia_prompt" type="text" class="regular-text" required /></td>
+                      </tr>
+                      <tr>
+                          <th scope="row"><label for="web_stories_ia_url"><?php esc_html_e( 'Source URL', 'web-stories-ia' ); ?></label></th>
+                          <td><input name="web_stories_ia_url" id="web_stories_ia_url" type="url" class="regular-text" /></td>
+                      </tr>
+                      <tr>
+                          <th scope="row"><label for="web_stories_ia_pages"><?php esc_html_e( 'Number of pages', 'web-stories-ia' ); ?></label></th>
+                          <td><input name="web_stories_ia_pages" id="web_stories_ia_pages" type="number" value="5" min="1" class="small-text" /></td>
+                      </tr>
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Images', 'web-stories-ia' ); ?></th>
                         <td>
@@ -361,6 +365,7 @@ class Web_Stories_IA {
         $prompt      = sanitize_text_field( $_POST['web_stories_ia_prompt'] ?? '' );
         $pages       = absint( $_POST['web_stories_ia_pages'] ?? 1 );
         $template_id = absint( $_POST['web_stories_ia_template'] ?? 0 );
+        $source_url  = esc_url_raw( $_POST['web_stories_ia_url'] ?? '' );
 
         $images_input = $_POST['web_stories_ia_images'] ?? [];
         $images       = [];
@@ -409,6 +414,9 @@ class Web_Stories_IA {
             $prompt,
             $pages
         );
+        if ( $source_url ) {
+            $outline_prompt .= ' URL: ' . $source_url . '.';
+        }
         if ( $images ) {
             $outline_prompt .= ' Imágenes: ' . wp_json_encode( $images ) . '.';
         }
@@ -474,6 +482,9 @@ class Web_Stories_IA {
         }
         if ( $images ) {
             update_post_meta( $story_id, '_web_stories_ia_images', $images );
+        }
+        if ( $source_url ) {
+            update_post_meta( $story_id, '_web_stories_ia_source_url', $source_url );
         }
 
         $edit_link = esc_url( admin_url( sprintf( 'post.php?post=%d&action=edit', $story_id ) ) );
